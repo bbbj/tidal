@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Coffee Bluff Tide Dashboard 2026</title>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<style>
+body { font-family: Arial; margin: 20px; }
+h1 { margin-bottom: 5px; }
+.calendar {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 8px;
+}
+.day {
+  border: 1px solid #ccc;
+  padding: 8px;
+  font-size: 12px;
+  cursor: pointer;
+  border-radius: 6px;
+}
+.king { background: #ffe6e6; border: 2px solid red; }
+.header { font-weight: bold; margin-bottom: 5px; }
+
+#details {
+  margin-top: 20px;
+  padding: 10px;
+  border: 1px solid #aaa;
+  border-radius: 6px;
+}
+
+canvas { margin-top: 20px; max-width: 100%; }
+</style>
+</head>
+
+<body>
+
+<h1>Coffee Bluff Tide Dashboard</h1>
+<div>NOAA Station: TEC3417 | May–Dec 2026</div>
+
+<div class="calendar" id="calendar"></div>
+
+<div id="details">
+  <h3>Click a date</h3>
+</div>
+
+<canvas id="chart"></canvas>
+
+<script>
+const NOAA_URL = "https://api.tidesandcurrents.noaa.gov/api/prod/datagetter?product=predictions&application=web&begin_date=20260501&end_date=20261231&datum=MLLW&station=TEC3417&time_zone=lst_ldt&units=english&interval=hilo&format=json";
+
+const LAT = 31.95;
+const LNG = -81.05;
+
+let allDays = {};
+let chart;
+
+async function fetchTides() {
+  const res = await fetch(NOAA_URL);
+  const data = await res.json();
+
+  data.predictions.forEach(t => {
+    const date = t.t.split(" ")[0];
+    if (!allDays[date]) allDays[date] = { highs: [], lows: [] };
+
+    if (t.type === "H") allDays[date].highs.push(t);
+    else allDays[date].lows.push(t);
+  });
+
+  buildCalendar();
+}
+
+async function getSun(date) {
+  const url = `https://api.sunrise-sunset.org/json?lat=${LAT}&lng=${LNG}&date=${date}&formatted=0`;
+  const res = await fetch(url);
+  const data = await res.json();
+  return data.results;
+}
+
+function getMoonPhase(date) {
+  const d = new Date(date);
+  const lp = 2551443;
+  const new_moon = new Date(1970,0,7,20,35,0);
+  const phase = ((d - new_moon) / 1000) % lp;
+  const percent = phase / lp;
+
+  if (percent < 0.03 || percent > 0.97) return "New Moon";
+  if (percent < 0.25) return "Waxing Crescent";
+  if (percent < 0.27) return "First Quarter";
+  if (percent < 0.48) return "Waxing Gibbous";
+  if (percent < 0.52) return "Full Moon";
+  if (percent < 0.73) return "Waning Gibbous";
+  if (percent < 0.77) return "Last Quarter";
+  return "Waning Crescent";
+}
+
+function buildCalendar() {
+  const cal = document.getElementById("calendar");
+
+  Object.keys(allDays).forEach(date => {
+    const d = allDays[date];
+    const maxHigh = Math.max(...d.highs.map(h => parseFloat(h.v)));
+    const isKing = maxHigh >= 9.0;
+
+    const div = document.createElement("div");
+    div.className = "day" + (isKing ? " king" : "");
+
+    div.innerHTML = `
+      <div class="header">${date}</div>
+      High: ${maxHigh.toFixed(2)} ft<br>
+      ${isKing ? "🌊 KING TIDE" : ""}
+    `;
+
+    div.onclick = () => showDetails(date);
+
+    cal.appendChild(div);
+  });
+}
+
+async function showDetails(date) {
+  const d = allDays[date];
+  const sun = await getSun(date);
+  const moon = getMoonPhase(date);
+
+  let html = `<h3>${date}</h3>`;
+
+  html += "<b>High Tides:</b><br>";
+  d.highs.forEach(h => {
+    html += `${h.t.split(" ")[1]} — ${h.v} ft<br>`;
+  });
+
+  html += "<br><b>Low Tides:</b><br>";
+  d.lows.forEach(l => {
+    html += `${l.t.split(" ")[1]} — ${l.v} ft<br>`;
+  });
+
+  html += `<br>🌅 Sunrise: ${new Date(sun.sunrise).toLocaleTimeString()}`;
+  html += `<br>🌇 Sunset: ${new Date(sun.sunset).toLocaleTimeString()}`;
+  html += `<br>🌙 Moon: ${moon}`;
+
+  document.getElementById("details").innerHTML = html;
+
+  drawChart(date);
+}
+
+function drawChart(date) {
+  const d = allDays[date];
+
+  const labels = [];
+  const values = [];
+
+  d.highs.forEach(h => {
+    labels.push(h.t.split(" ")[1]);
+    values.push(parseFloat(h.v));
+  });
+
+  d.lows.forEach(l => {
+    labels.push(l.t.split(" ")[1]);
+    values.push(parseFloat(l.v));
+  });
+
+  if (chart) chart.destroy();
+
+  chart = new Chart(document.getElementById("chart"), {
+    type: "line",
+    data: {
+      labels: labels,
+      datasets: [{
+        label: "Tide Height (ft)",
+        data: values,
+        fill: false
+      }]
+    },
+    options: {
+      responsive: true
+    }
+  });
+}
+
+fetchTides();
+</script>
+
+</body>
+</html>
